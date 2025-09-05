@@ -32,7 +32,7 @@ const AppContent: React.FC = () => {
                 <div className="admin-section">
                   <CSVLoader />
                   <KappaCalculator />
-                </div>
+                 </div>
                 <AdjudicatorInterface />
               </>
             ) : (

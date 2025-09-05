@@ -37,6 +37,7 @@ const AdjudicatorInterface: React.FC = () => {
   const [finalSentiment, setFinalSentiment] = useState<'positive' | 'negative' | 'neutral' | ''>('')
   const [finalDiscoursePolarization, setFinalDiscoursePolarization] = useState<'partisan' | 'objective' | 'non_polarized' | ''>('')
   const [loading, setLoading] = useState(false)
+  const [jumpToComment, setJumpToComment] = useState('')
 
   useEffect(() => {
     fetchData()
@@ -241,6 +242,22 @@ const AdjudicatorInterface: React.FC = () => {
     }
   }
 
+  const handleJumpToComment = async () => {
+    const commentNumber = parseInt(jumpToComment)
+    if (commentNumber && commentNumber >= 1 && commentNumber <= totalComments) {
+      const targetIndex = commentNumber - 1
+      
+      // Load comment if not already loaded
+      if (!comments[targetIndex]) {
+        const batchStart = Math.floor(targetIndex / 100) * 100
+        await loadCommentsBatch(batchStart, 100)
+      }
+      
+      setCurrentCommentIndex(targetIndex)
+      setJumpToComment('')
+    }
+  }
+
   const finalizedCount = Object.keys(finalAnnotations).length
   const progress = totalComments > 0 ? (finalizedCount / totalComments) * 100 : 0
 
@@ -258,13 +275,33 @@ const AdjudicatorInterface: React.FC = () => {
       </div>
 
       <div className="comment-navigation">
-        <button onClick={goToPrevious} disabled={currentCommentIndex === 0}>
-          Previous
-        </button>
-        <span>Comment {currentCommentIndex + 1} of {totalComments}</span>
-        <button onClick={goToNext} disabled={currentCommentIndex === totalComments - 1}>
-          Next
-        </button>
+        <div className="nav-left">
+          <button onClick={goToPrevious} disabled={currentCommentIndex === 0}>
+            Previous
+          </button>
+          <div className="jump-to-comment">
+            <input
+              type="number"
+              placeholder="Jump to #"
+              value={jumpToComment}
+              onChange={(e) => setJumpToComment(e.target.value)}
+              min="1"
+              max={totalComments}
+              className="jump-input"
+            />
+            <button onClick={handleJumpToComment} className="jump-btn">
+              Go
+            </button>
+          </div>
+        </div>
+        <div className="nav-center">
+          <span>Comment {currentCommentIndex + 1} of {totalComments}</span>
+        </div>
+        <div className="nav-right">
+          <button onClick={goToNext} disabled={currentCommentIndex === totalComments - 1}>
+            Next
+          </button>
+        </div>
       </div>
 
       <div className="comment-display">
