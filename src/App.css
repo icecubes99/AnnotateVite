@@ -22,7 +22,7 @@ body {
 
 .app {
   width: 100%;
-  max-width: 1400px;
+  /* max-width: 1400px; */
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -729,6 +729,231 @@ h4 {
   color: #e2e8f0;
 }
 
+/* Annotation Layout - Side by Side */
+.annotation-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: stretch;
+}
+
+.annotation-section {
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 2rem;
+  height: fit-content;
+}
+
+.annotation-section .annotation-form {
+  margin: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.annotation-section .form-section {
+  margin-bottom: 1.5rem;
+}
+
+.annotation-section .radio-group label {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+/* Make comment section match annotation section height */
+.annotation-layout .comment-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.annotation-layout .comment-display {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.annotation-layout .comment-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.annotation-layout .comment-content .comment-text {
+  flex: 1;
+}
+
+/* Adjudication Layout - Side by Side */
+.adjudication-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: stretch;
+}
+
+.comment-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.adjudication-section {
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 2rem;
+  height: fit-content;
+}
+
+.adjudication-section .final-annotation-form {
+  margin: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.adjudication-section .form-section {
+  margin-bottom: 1.5rem;
+}
+
+.adjudication-section .radio-group label {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+/* Equal height distribution for comment section components */
+.adjudication-layout .comment-display {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.adjudication-layout .comment-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.adjudication-layout .comment-content .comment-text {
+  flex: 1;
+}
+
+.adjudication-layout .annotations-comparison {
+  flex: 1;
+}
+
+/* Equal height cards solution using CSS Grid with minmax */
+.annotation-layout {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: start;
+}
+
+.adjudication-layout {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  width: 100%;
+  box-sizing: border-box;
+  align-items: start;
+}
+
+.annotation-layout .comment-section,
+.adjudication-layout .comment-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.annotation-layout .annotation-section,
+.adjudication-layout .adjudication-section {
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 2rem;
+  height: fit-content;
+  min-height: 600px; /* Minimum height to ensure cards are reasonably tall */
+}
+
+/* Ensure cards stretch to fill available space */
+.annotation-layout .comment-display {
+  display: flex;
+  flex-direction: column;
+  min-height: 600px; /* Match the minimum height */
+}
+
+.annotation-layout .annotation-form,
+.adjudication-layout .final-annotation-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 100%;
+}
+
+.adjudication-layout .comment-display {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+/* Make comment content flexible */
+.annotation-layout .comment-content,
+.adjudication-layout .comment-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.annotation-layout .comment-text,
+.adjudication-layout .comment-text {
+  flex: 1;
+}
+
+/* Make comment text more readable in side-by-side layout */
+.annotation-layout .comment-text,
+.adjudication-layout .comment-text {
+  font-size: 1rem;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Adjust annotator responses for side-by-side */
+.adjudication-layout .annotators-grid {
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.adjudication-layout .annotator-response {
+  padding: 1rem;
+}
+
+@media (max-width: 1200px) {
+  .annotation-layout,
+  .adjudication-layout {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  
+  .annotation-section,
+  .adjudication-section {
+    position: static;
+    min-height: auto;
+  }
+  
+  .annotation-layout .comment-display {
+    min-height: auto;
+  }
+}
+
 @media (max-width: 768px) {
   .admin-section {
     grid-template-columns: 1fr;
@@ -776,5 +1001,21 @@ h4 {
   .form-actions {
     flex-direction: column;
     gap: 0.75rem;
+  }
+  
+  .annotation-layout,
+  .adjudication-layout {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  
+  .annotation-section,
+  .adjudication-section {
+    position: static;
+    min-height: auto;
+  }
+  
+  .annotation-layout .comment-display {
+    min-height: auto;
   }
 }

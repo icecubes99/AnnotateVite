@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useApp } from '../contexts/AppContext'
 import { supabase } from '../lib/supabase'
 
@@ -31,6 +31,8 @@ const AnnotationInterface: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [annotations, setAnnotations] = useState<Record<number, Annotation>>({})
   const [jumpToComment, setJumpToComment] = useState('')
+  const commentSectionRef = useRef<HTMLDivElement>(null)
+  const annotationSectionRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const loadDataAndNavigate = async () => {
@@ -38,7 +40,7 @@ const AnnotationInterface: React.FC = () => {
       await fetchAnnotations()
     }
     loadDataAndNavigate()
-  }, [currentRole])
+  }, [currentRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Navigate to first unannotated comment when data is loaded
   useEffect(() => {
@@ -51,31 +53,62 @@ const AnnotationInterface: React.FC = () => {
     }
   }, [comments, annotations, totalComments])
 
+  // Equal height effect
+  useEffect(() => {
+    const equalizeHeights = () => {
+      if (commentSectionRef.current && annotationSectionRef.current) {
+        // Reset heights
+        commentSectionRef.current.style.height = 'auto'
+        annotationSectionRef.current.style.height = 'auto'
+
+        // Get current heights
+        const commentHeight = commentSectionRef.current.offsetHeight
+        const annotationHeight = annotationSectionRef.current.offsetHeight
+
+        // Set both to the maximum height
+        const maxHeight = Math.max(commentHeight, annotationHeight)
+        commentSectionRef.current.style.height = `${maxHeight}px`
+        annotationSectionRef.current.style.height = `${maxHeight}px`
+      }
+    }
+
+    // Run after a short delay to ensure content is rendered
+    const timer = setTimeout(equalizeHeights, 100)
+
+    // Also run on window resize
+    window.addEventListener('resize', equalizeHeights)
+
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('resize', equalizeHeights)
+    }
+  }, [currentCommentIndex, sentiment, discoursePolarization]) // Re-run when content changes
+
   const fetchInitialData = async () => {
     // Get total count first
     const { count } = await supabase
       .from('comments')
       .select('*', { count: 'exact', head: true })
-    
+
     setTotalComments(count || 0)
     console.log('Total comments in database:', count)
-    
+
     // Load only first batch of comments
     await loadCommentsBatch(0, 100)
   }
-  
+
   const loadCommentsBatch = async (startIndex: number, batchSize: number = 100) => {
     const { data, error } = await supabase
       .from('comments')
       .select('*')
       .order('id')
       .range(startIndex, startIndex + batchSize - 1)
-    
+
     if (error) {
       console.error('Error loading comments batch:', error)
       return
     }
-    
+
     if (data) {
       // Update comments array - replace or extend
       setComments(prev => {
@@ -90,12 +123,12 @@ const AnnotationInterface: React.FC = () => {
 
   const fetchAnnotations = async () => {
     if (!currentRole || currentRole === 'adjudicator') return
-    
+
     const { data } = await supabase
       .from('annotations')
       .select('*')
       .eq('annotator_role', currentRole)
-    
+
     if (data) {
       const annotationsMap = data.reduce((acc, annotation) => {
         acc[annotation.comment_id] = annotation
@@ -172,13 +205,13 @@ const AnnotationInterface: React.FC = () => {
   const goToNext = async () => {
     if (currentCommentIndex < totalComments - 1) {
       const nextIndex = currentCommentIndex + 1
-      
+
       // Load comment if not already loaded
       if (!comments[nextIndex]) {
         const batchStart = Math.floor(nextIndex / 100) * 100
         await loadCommentsBatch(batchStart, 100)
       }
-      
+
       setCurrentCommentIndex(nextIndex)
     }
   }
@@ -191,10 +224,10 @@ const AnnotationInterface: React.FC = () => {
 
   const goToNextUnannotated = async () => {
     // Look in loaded comments first
-    const nextUnannotatedIndex = comments.findIndex((comment, index) => 
+    const nextUnannotatedIndex = comments.findIndex((comment, index) =>
       index > currentCommentIndex && comment && !annotations[comment.id]
     )
-    
+
     if (nextUnannotatedIndex !== -1) {
       setCurrentCommentIndex(nextUnannotatedIndex)
     } else {
@@ -203,7 +236,7 @@ const AnnotationInterface: React.FC = () => {
       if (nextBatchStart < totalComments) {
         await loadCommentsBatch(nextBatchStart, 100)
         // Retry search after loading
-        const retryIndex = comments.findIndex((comment, index) => 
+        const retryIndex = comments.findIndex((comment, index) =>
           index > currentCommentIndex && comment && !annotations[comment.id]
         )
         if (retryIndex !== -1) {
@@ -217,13 +250,13 @@ const AnnotationInterface: React.FC = () => {
     const commentNumber = parseInt(jumpToComment)
     if (commentNumber && commentNumber >= 1 && commentNumber <= totalComments) {
       const targetIndex = commentNumber - 1
-      
+
       // Load comment if not already loaded
       if (!comments[targetIndex]) {
         const batchStart = Math.floor(targetIndex / 100) * 100
         await loadCommentsBatch(batchStart, 100)
       }
-      
+
       setCurrentCommentIndex(targetIndex)
       setJumpToComment('')
     }
@@ -231,7 +264,7 @@ const AnnotationInterface: React.FC = () => {
 
   const clearAnnotation = async () => {
     if (!currentComment || !currentAnnotation) return
-    
+
     setLoading(true)
     try {
       const { error } = await supabase
@@ -293,8 +326,8 @@ const AnnotationInterface: React.FC = () => {
           {currentAnnotation && <span className="annotated-badge">✓ Annotated</span>}
         </div>
         <div className="nav-right">
-          <button 
-            onClick={goToNextUnannotated} 
+          <button
+            onClick={goToNextUnannotated}
             disabled={false}
             className="next-unannotated"
           >
@@ -306,123 +339,129 @@ const AnnotationInterface: React.FC = () => {
         </div>
       </div>
 
-      <div className="comment-display">
-        <div className="comment-context">
-          <h3>Context</h3>
-          <div className="context-info">
-            <p><strong>Title:</strong> {currentComment.context_title}</p>
-            <div className="context-meta">
-              <span><strong>ID:</strong> {currentComment.unique_comment_id}</span>
-              <span><strong>Likes:</strong> {currentComment.likes}</span>
-              {currentComment.post_url && (
-                <a href={currentComment.post_url} target="_blank" rel="noopener noreferrer" className="post-link">
-                  View Original Post
-                </a>
-              )}
+      <div className="annotation-layout">
+        <div className="comment-section" ref={commentSectionRef}>
+          <div className="comment-display">
+            <div className="comment-context">
+              <h3>Context</h3>
+              <div className="context-info">
+                <p><strong>Title:</strong> {currentComment.context_title}</p>
+                <div className="context-meta">
+                  <span><strong>ID:</strong> {currentComment.unique_comment_id}</span>
+                  <span><strong>Likes:</strong> {currentComment.likes}</span>
+                  {currentComment.post_url && (
+                    <a href={currentComment.post_url} target="_blank" rel="noopener noreferrer" className="post-link">
+                      View Original Post
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="comment-content">
+              <h3>Comment to Annotate:</h3>
+              <p className="comment-text">{currentComment.text}</p>
             </div>
           </div>
         </div>
-        
-        <div className="comment-content">
-          <h3>Comment to Annotate:</h3>
-          <p className="comment-text">{currentComment.text}</p>
+
+        <div className="annotation-section" ref={annotationSectionRef}>
+          <form onSubmit={handleSubmit} className="annotation-form">
+            <div className="form-section">
+              <h4>Sentiment Polarity</h4>
+              <div className="radio-group">
+                <label>
+                  <input
+                    type="radio"
+                    name="sentiment"
+                    value="positive"
+                    checked={sentiment === 'positive'}
+                    onChange={(e) => setSentiment(e.target.value as 'positive')}
+                  />
+                  <strong>Positive</strong> - Expresses approval, support, praise, or optimism
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="sentiment"
+                    value="negative"
+                    checked={sentiment === 'negative'}
+                    onChange={(e) => setSentiment(e.target.value as 'negative')}
+                  />
+                  <strong>Negative</strong> - Expresses disapproval, criticism, anger, or pessimism
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="sentiment"
+                    value="neutral"
+                    checked={sentiment === 'neutral'}
+                    onChange={(e) => setSentiment(e.target.value as 'neutral')}
+                  />
+                  <strong>Neutral</strong> - Factual statements, questions, or balanced observations
+                </label>
+              </div>
+            </div>
+
+            <div className="form-section">
+              <h4>Discourse Polarization</h4>
+              <div className="radio-group">
+                <label>
+                  <input
+                    type="radio"
+                    name="discoursePolarization"
+                    value="partisan"
+                    checked={discoursePolarization === 'partisan'}
+                    onChange={(e) => setDiscoursePolarization(e.target.value as 'partisan')}
+                  />
+                  <strong>Partisan</strong> - Uses divisive language, extreme viewpoints, us-vs-them framing
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="discoursePolarization"
+                    value="objective"
+                    checked={discoursePolarization === 'objective'}
+                    onChange={(e) => setDiscoursePolarization(e.target.value as 'objective')}
+                  />
+                  <strong>Objective</strong> - Presents balanced views, uses factual language
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="discoursePolarization"
+                    value="non_polarized"
+                    checked={discoursePolarization === 'non_polarized'}
+                    onChange={(e) => setDiscoursePolarization(e.target.value as 'non_polarized')}
+                  />
+                  <strong>Non-Polarized</strong> - No political opinion, factual questions, off-topic
+                </label>
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                type="submit"
+                disabled={loading || !sentiment || !discoursePolarization}
+                className="submit-annotation"
+              >
+                {loading ? 'Saving...' : currentAnnotation ? 'Update Annotation' : 'Save Annotation'}
+              </button>
+
+              {currentAnnotation && (
+                <button
+                  type="button"
+                  onClick={clearAnnotation}
+                  disabled={loading}
+                  className="clear-annotation"
+                >
+                  {loading ? 'Clearing...' : 'Clear Annotation'}
+                </button>
+              )}
+            </div>
+          </form>
         </div>
       </div>
-
-      <form onSubmit={handleSubmit} className="annotation-form">
-        <div className="form-section">
-          <h4>Sentiment Polarity</h4>
-          <div className="radio-group">
-            <label>
-              <input
-                type="radio"
-                name="sentiment"
-                value="positive"
-                checked={sentiment === 'positive'}
-                onChange={(e) => setSentiment(e.target.value as 'positive')}
-              />
-              <strong>Positive</strong> - Expresses approval, support, praise, or optimism
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="sentiment"
-                value="negative"
-                checked={sentiment === 'negative'}
-                onChange={(e) => setSentiment(e.target.value as 'negative')}
-              />
-              <strong>Negative</strong> - Expresses disapproval, criticism, anger, or pessimism
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="sentiment"
-                value="neutral"
-                checked={sentiment === 'neutral'}
-                onChange={(e) => setSentiment(e.target.value as 'neutral')}
-              />
-              <strong>Neutral</strong> - Factual statements, questions, or balanced observations
-            </label>
-          </div>
-        </div>
-
-        <div className="form-section">
-          <h4>Discourse Polarization</h4>
-          <div className="radio-group">
-            <label>
-              <input
-                type="radio"
-                name="discoursePolarization"
-                value="partisan"
-                checked={discoursePolarization === 'partisan'}
-                onChange={(e) => setDiscoursePolarization(e.target.value as 'partisan')}
-              />
-              <strong>Partisan</strong> - Uses divisive language, extreme viewpoints, us-vs-them framing
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="discoursePolarization"
-                value="objective"
-                checked={discoursePolarization === 'objective'}
-                onChange={(e) => setDiscoursePolarization(e.target.value as 'objective')}
-              />
-              <strong>Objective</strong> - Presents balanced views, uses factual language
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="discoursePolarization"
-                value="non_polarized"
-                checked={discoursePolarization === 'non_polarized'}
-                onChange={(e) => setDiscoursePolarization(e.target.value as 'non_polarized')}
-              />
-              <strong>Non-Polarized</strong> - No political opinion, factual questions, off-topic
-            </label>
-          </div>
-        </div>
-
-        <div className="form-actions">
-          <button 
-            type="submit" 
-            disabled={loading || !sentiment || !discoursePolarization}
-            className="submit-annotation"
-          >
-            {loading ? 'Saving...' : currentAnnotation ? 'Update Annotation' : 'Save Annotation'}
-          </button>
-          
-          {currentAnnotation && (
-            <button 
-              type="button"
-              onClick={clearAnnotation}
-              disabled={loading}
-              className="clear-annotation"
-            >
-              {loading ? 'Clearing...' : 'Clear Annotation'}
-            </button>
-          )}
-        </div>
-      </form>
     </div>
   )
 }
