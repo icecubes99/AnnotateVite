@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useApp } from '../contexts/AppContext'
 import { supabase } from '../lib/supabase'
+import CommentDisplay from './common/CommentDisplay'
+import CommentNavigation from './common/CommentNavigation'
 
 interface Comment {
   id: number
@@ -385,68 +387,42 @@ const AnnotationInterface: React.FC = () => {
         </div>
       </div>
 
-      <div className="comment-navigation">
-        <div className="nav-left">
-          <button onClick={goToPrevious} disabled={currentCommentIndex === 0}>
-            Previous
-          </button>
-          <div className="jump-to-comment">
-            <input
-              type="number"
-              placeholder="Jump to #"
-              value={jumpToComment}
-              onChange={(e) => setJumpToComment(e.target.value)}
-              min="1"
-              max={totalComments}
-              className="jump-input"
-            />
-            <button onClick={handleJumpToComment} className="jump-btn">
-              Go
-            </button>
-          </div>
-        </div>
-        <div className="nav-center">
-          <span>Comment {currentCommentIndex + 1} of {totalComments}</span>
-          {currentAnnotation && <span className="annotated-badge">✓ Annotated</span>}
-        </div>
-        <div className="nav-right">
+      <CommentNavigation
+        currentIndex={currentCommentIndex}
+        totalCount={totalComments}
+        onPrevious={goToPrevious}
+        disablePrevious={currentCommentIndex === 0}
+        onNext={goToNext}
+        disableNext={currentCommentIndex === totalComments - 1}
+        jumpValue={jumpToComment}
+        onJumpChange={(value) => setJumpToComment(value)}
+        onJumpSubmit={handleJumpToComment}
+        jumpMax={totalComments}
+        extraCenter={
+          currentAnnotation ? <span className="annotated-badge">✓ Annotated</span> : undefined
+        }
+        extraRight={
           <button
+            type="button"
             onClick={goToNextUnannotated}
             disabled={false}
             className="next-unannotated"
           >
             Next Unannotated
           </button>
-          <button onClick={goToNext} disabled={currentCommentIndex === totalComments - 1}>
-            Next
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="annotation-layout">
         <div className="comment-section" ref={commentSectionRef}>
-          <div className="comment-display">
-            <div className="comment-context">
-              <h3>Context</h3>
-              <div className="context-info">
-                <p><strong>Title:</strong> {currentComment.context_title}</p>
-                <div className="context-meta">
-                  <span><strong>ID:</strong> {currentComment.unique_comment_id}</span>
-                  <span><strong>Likes:</strong> {currentComment.likes}</span>
-                  {currentComment.post_url && (
-                    <a href={currentComment.post_url} target="_blank" rel="noopener noreferrer" className="post-link">
-                      View Original Post
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="comment-content">
-              <h3>Comment to Annotate:</h3>
-              <p className="comment-text">{currentComment.text}</p>
-            </div>
-          </div>
+          <CommentDisplay
+            contextTitle={currentComment.context_title}
+            uniqueId={currentComment.unique_comment_id}
+            likes={currentComment.likes}
+            postUrl={currentComment.post_url}
+            commentText={currentComment.text}
+            commentHeading="Comment to Annotate:"
+          />
         </div>
 
         <div className="annotation-section" ref={annotationSectionRef}>

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import CommentDisplay from './common/CommentDisplay'
+import CommentNavigation from './common/CommentNavigation'
 
 interface Comment {
   id: number
@@ -274,60 +276,29 @@ const AdjudicatorInterface: React.FC = () => {
         </div>
       </div>
 
-      <div className="comment-navigation">
-        <div className="nav-left">
-          <button onClick={goToPrevious} disabled={currentCommentIndex === 0}>
-            Previous
-          </button>
-          <div className="jump-to-comment">
-            <input
-              type="number"
-              placeholder="Jump to #"
-              value={jumpToComment}
-              onChange={(e) => setJumpToComment(e.target.value)}
-              min="1"
-              max={totalComments}
-              className="jump-input"
-            />
-            <button onClick={handleJumpToComment} className="jump-btn">
-              Go
-            </button>
-          </div>
-        </div>
-        <div className="nav-center">
-          <span>Comment {currentCommentIndex + 1} of {totalComments}</span>
-        </div>
-        <div className="nav-right">
-          <button onClick={goToNext} disabled={currentCommentIndex === totalComments - 1}>
-            Next
-          </button>
-        </div>
-      </div>
+      <CommentNavigation
+        currentIndex={currentCommentIndex}
+        totalCount={totalComments}
+        onPrevious={goToPrevious}
+        disablePrevious={currentCommentIndex === 0}
+        onNext={goToNext}
+        disableNext={currentCommentIndex === totalComments - 1}
+        jumpValue={jumpToComment}
+        onJumpChange={(value) => setJumpToComment(value)}
+        onJumpSubmit={handleJumpToComment}
+        jumpMax={totalComments}
+      />
 
       <div className="adjudication-layout">
         <div className="comment-section">
-          <div className="comment-display">
-            <div className="comment-context">
-              <h3>Context</h3>
-              <div className="context-info">
-                <p><strong>Title:</strong> {currentComment.context_title}</p>
-                <div className="context-meta">
-                  <span><strong>ID:</strong> {currentComment.unique_comment_id}</span>
-                  <span><strong>Likes:</strong> {currentComment.likes}</span>
-                  {currentComment.post_url && (
-                    <a href={currentComment.post_url} target="_blank" rel="noopener noreferrer" className="post-link">
-                      View Original Post
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="comment-content">
-              <h3>Comment to Adjudicate:</h3>
-              <p className="comment-text">{currentComment.text}</p>
-            </div>
-          </div>
+          <CommentDisplay
+            contextTitle={currentComment.context_title}
+            uniqueId={currentComment.unique_comment_id}
+            likes={currentComment.likes}
+            postUrl={currentComment.post_url}
+            commentText={currentComment.text}
+            commentHeading="Comment to Adjudicate:"
+          />
 
           <div className="annotations-comparison">
             <h3>Annotator Responses {hasDisagreement(currentAnnotations) && <span className="disagreement">⚠️ Disagreement</span>}</h3>
