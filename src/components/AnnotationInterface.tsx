@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useApp } from '../contexts/AppContext'
 import { supabase } from '../lib/supabase'
 import CommentDisplay from './common/CommentDisplay'
 import CommentNavigation from './common/CommentNavigation'
+import useHotkeys from '../hooks/useHotkeys'
 
 interface Comment {
   id: number
@@ -235,11 +236,20 @@ const AnnotationInterface: React.FC = () => {
     }
   }, [currentAnnotation, currentCommentIndex])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!currentRole || currentRole === 'adjudicator' || !currentComment || !sentiment || !discoursePolarization) return
+  const saveAnnotation = useCallback(async () => {
+    if (
+      loading ||
+      !currentRole ||
+      currentRole === 'adjudicator' ||
+      !currentComment ||
+      !sentiment ||
+      !discoursePolarization
+    ) {
+      return false
+    }
 
     setLoading(true)
+    let success = false
 
     try {
       if (currentAnnotation) {
@@ -260,6 +270,7 @@ const AnnotationInterface: React.FC = () => {
               discourse_polarization: discoursePolarization,
             }
           }))
+          success = true
         }
       } else {
         const { data, error } = await supabase
@@ -278,35 +289,42 @@ const AnnotationInterface: React.FC = () => {
             ...prev,
             [currentComment.id]: data
           }))
+          success = true
         }
       }
     } catch (error) {
       console.error('Error saving annotation:', error)
     }
+
     setLoading(false)
+    return success
+  }, [currentAnnotation, currentComment, currentRole, discoursePolarization, loading, sentiment])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await saveAnnotation()
   }
 
-  const goToNext = async () => {
+  const goToNext = useCallback(async () => {
     if (currentCommentIndex < totalComments - 1) {
       const nextIndex = currentCommentIndex + 1
 
-      // Load comment if not already loaded
-      if (!comments[nextIndex]) {
+      if (!commentsRef.current[nextIndex]) {
         const batchStart = Math.floor(nextIndex / BATCH_SIZE) * BATCH_SIZE
         await loadCommentsBatch(batchStart)
       }
 
       setCurrentCommentIndex(nextIndex)
     }
-  }
+  }, [currentCommentIndex, loadCommentsBatch, totalComments])
 
-  const goToPrevious = () => {
+  const goToPrevious = useCallback(() => {
     if (currentCommentIndex > 0) {
       setCurrentCommentIndex(currentCommentIndex - 1)
     }
-  }
+  }, [currentCommentIndex])
 
-  const goToNextUnannotated = async () => {
+  const goToNextUnannotated = useCallback(async () => {
     // Look in loaded comments first
     const commentsSnapshot = commentsRef.current
     const nextUnannotatedIndex = commentsSnapshot.findIndex((comment, index) =>
@@ -330,15 +348,15 @@ const AnnotationInterface: React.FC = () => {
         }
       }
     }
-  }
+  }, [annotations, currentCommentIndex, loadCommentsBatch, totalComments])
 
-  const handleJumpToComment = async () => {
+  const handleJumpToComment = useCallback(async () => {
     const commentNumber = parseInt(jumpToComment)
     if (commentNumber && commentNumber >= 1 && commentNumber <= totalComments) {
       const targetIndex = commentNumber - 1
 
       // Load comment if not already loaded
-      if (!comments[targetIndex]) {
+      if (!commentsRef.current[targetIndex]) {
         const batchStart = Math.floor(targetIndex / BATCH_SIZE) * BATCH_SIZE
         await loadCommentsBatch(batchStart)
       }
@@ -346,10 +364,10 @@ const AnnotationInterface: React.FC = () => {
       setCurrentCommentIndex(targetIndex)
       setJumpToComment('')
     }
-  }
+  }, [jumpToComment, loadCommentsBatch, totalComments])
 
-  const clearAnnotation = async () => {
-    if (!currentComment || !currentAnnotation) return
+  const clearAnnotation = useCallback(async () => {
+    if (loading || !currentComment || !currentAnnotation) return
 
     setLoading(true)
     try {
@@ -369,10 +387,79 @@ const AnnotationInterface: React.FC = () => {
       console.error('Error clearing annotation:', error)
     }
     setLoading(false)
-  }
+  }, [annotations, currentAnnotation, currentComment, loading])
 
   const annotatedCount = Object.keys(annotations).length
   const progress = totalComments > 0 ? (annotatedCount / totalComments) * 100 : 0
+
+  const hotkeys = useMemo(
+    () => [
+      { key: '1', handler: () => setSentiment('positive') },
+      { key: '2', handler: () => setSentiment('negative') },
+      { key: '3', handler: () => setSentiment('neutral') },
+      { key: 'q', handler: () => setDiscoursePolarization('partisan') },
+      { key: 'w', handler: () => setDiscoursePolarization('objective') },
+      { key: 'e', handler: () => setDiscoursePolarization('non_polarized') },
+      {
+        key: 'Enter',
+        ctrl: true,
+        preventDefault: true,
+        handler: () => {
+          void saveAnnotation()
+        },
+      },
+      {
+        key: 'Enter',
+        meta: true,
+        preventDefault: true,
+        handler: () => {
+          void saveAnnotation()
+        },
+      },
+      {
+        key: 'ArrowRight',
+        alt: true,
+        preventDefault: true,
+        handler: () => {
+          void goToNext()
+        },
+      },
+      {
+        key: 'ArrowLeft',
+        alt: true,
+        preventDefault: true,
+        handler: () => {
+          goToPrevious()
+        },
+      },
+      {
+        key: 'u',
+        alt: true,
+        handler: () => {
+          void goToNextUnannotated()
+        },
+      },
+      {
+        key: 'c',
+        shift: true,
+        preventDefault: true,
+        handler: () => {
+          void clearAnnotation()
+        },
+      },
+    ],
+    [
+      clearAnnotation,
+      goToNext,
+      goToNextUnannotated,
+      goToPrevious,
+      saveAnnotation,
+      setDiscoursePolarization,
+      setSentiment,
+    ],
+  )
+
+  useHotkeys(hotkeys)
 
   if (!currentComment) {
     return <div>No comments available for annotation.</div>
@@ -412,6 +499,13 @@ const AnnotationInterface: React.FC = () => {
           </button>
         }
       />
+
+      <div className="shortcut-hints">
+        <span>
+          Shortcuts: 1/2/3 sentiment, Q/W/E discourse, Alt/Option + ←/→ navigate,
+          Ctrl/Cmd + Enter save, Shift + C clear.
+        </span>
+      </div>
 
       <div className="annotation-layout">
         <div className="comment-section" ref={commentSectionRef}>

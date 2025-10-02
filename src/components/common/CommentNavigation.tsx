@@ -43,6 +43,15 @@ const CommentNavigation: React.FC<CommentNavigationProps> = ({
     onJumpChange(event.target.value)
   }
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      if (!jumpDisabled) {
+        onJumpSubmit()
+      }
+    }
+  }
+
   return (
     <div className="comment-navigation">
       <div className="nav-left">
@@ -55,6 +64,7 @@ const CommentNavigation: React.FC<CommentNavigationProps> = ({
             placeholder={jumpPlaceholder}
             value={jumpValue}
             onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
             min={jumpMin}
             max={jumpMax}
             className="jump-input"

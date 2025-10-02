@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import CommentDisplay from './common/CommentDisplay'
 import CommentNavigation from './common/CommentNavigation'
+import useHotkeys from '../hooks/useHotkeys'
 
 interface Comment {
   id: number
@@ -30,6 +31,8 @@ interface FinalAnnotation {
   created_at: string
 }
 
+const BATCH_SIZE = 100
+
 const AdjudicatorInterface: React.FC = () => {
   const [comments, setComments] = useState<Comment[]>([])
   const [totalComments, setTotalComments] = useState(0)
@@ -40,10 +43,15 @@ const AdjudicatorInterface: React.FC = () => {
   const [finalDiscoursePolarization, setFinalDiscoursePolarization] = useState<'partisan' | 'objective' | 'non_polarized' | ''>('')
   const [loading, setLoading] = useState(false)
   const [jumpToComment, setJumpToComment] = useState('')
+  const commentsRef = useRef<Comment[]>([])
 
   useEffect(() => {
     fetchData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    commentsRef.current = comments
+  }, [comments])
 
   const hasDisagreement = (annotations: Annotation[]) => {
     if (annotations.length < 2) return false
@@ -101,10 +109,10 @@ const AdjudicatorInterface: React.FC = () => {
     console.log('Adjudicator - Total comments in database:', count)
 
     // Load only first batch of comments
-    await loadCommentsBatch(0, 100)
+    await loadCommentsBatch(0)
   }
 
-  const loadCommentsBatch = async (startIndex: number, batchSize: number = 100) => {
+  const loadCommentsBatch = async (startIndex: number, batchSize: number = BATCH_SIZE) => {
     const { data, error } = await supabase
       .from('comments')
       .select('*')
@@ -123,6 +131,7 @@ const AdjudicatorInterface: React.FC = () => {
         data.forEach((comment, index) => {
           newComments[startIndex + index] = comment
         })
+        commentsRef.current = newComments
         return newComments
       })
     }
@@ -174,11 +183,13 @@ const AdjudicatorInterface: React.FC = () => {
     }
   }, [currentFinalAnnotation, currentCommentIndex])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!currentComment || !finalSentiment || !finalDiscoursePolarization) return
+  const saveFinalDecision = useCallback(async () => {
+    if (loading || !currentComment || !finalSentiment || !finalDiscoursePolarization) {
+      return false
+    }
 
     setLoading(true)
+    let success = false
 
     try {
       if (currentFinalAnnotation) {
@@ -199,6 +210,7 @@ const AdjudicatorInterface: React.FC = () => {
               final_discourse_polarization: finalDiscoursePolarization,
             }
           }))
+          success = true
         }
       } else {
         const { data, error } = await supabase
@@ -216,52 +228,104 @@ const AdjudicatorInterface: React.FC = () => {
             ...prev,
             [currentComment.id]: data
           }))
+          success = true
         }
       }
     } catch (error) {
       console.error('Error saving final annotation:', error)
     }
+
     setLoading(false)
+    return success
+  }, [currentComment, currentFinalAnnotation, finalDiscoursePolarization, finalSentiment, loading])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await saveFinalDecision()
   }
 
-  const goToNext = async () => {
+  const goToNext = useCallback(async () => {
     if (currentCommentIndex < totalComments - 1) {
       const nextIndex = currentCommentIndex + 1
 
-      // Load comment if not already loaded
-      if (!comments[nextIndex]) {
-        const batchStart = Math.floor(nextIndex / 100) * 100
-        await loadCommentsBatch(batchStart, 100)
+      if (!commentsRef.current[nextIndex]) {
+        const batchStart = Math.floor(nextIndex / BATCH_SIZE) * BATCH_SIZE
+        await loadCommentsBatch(batchStart)
       }
 
       setCurrentCommentIndex(nextIndex)
     }
-  }
+  }, [currentCommentIndex, loadCommentsBatch, totalComments])
 
-  const goToPrevious = () => {
+  const goToPrevious = useCallback(() => {
     if (currentCommentIndex > 0) {
       setCurrentCommentIndex(currentCommentIndex - 1)
     }
-  }
+  }, [currentCommentIndex])
 
-  const handleJumpToComment = async () => {
+  const handleJumpToComment = useCallback(async () => {
     const commentNumber = parseInt(jumpToComment)
     if (commentNumber && commentNumber >= 1 && commentNumber <= totalComments) {
       const targetIndex = commentNumber - 1
 
-      // Load comment if not already loaded
-      if (!comments[targetIndex]) {
-        const batchStart = Math.floor(targetIndex / 100) * 100
-        await loadCommentsBatch(batchStart, 100)
+      if (!commentsRef.current[targetIndex]) {
+        const batchStart = Math.floor(targetIndex / BATCH_SIZE) * BATCH_SIZE
+        await loadCommentsBatch(batchStart)
       }
 
       setCurrentCommentIndex(targetIndex)
       setJumpToComment('')
     }
-  }
+  }, [jumpToComment, loadCommentsBatch, totalComments])
 
   const finalizedCount = Object.keys(finalAnnotations).length
   const progress = totalComments > 0 ? (finalizedCount / totalComments) * 100 : 0
+
+  const hotkeys = useMemo(
+    () => [
+      { key: '1', handler: () => setFinalSentiment('positive') },
+      { key: '2', handler: () => setFinalSentiment('negative') },
+      { key: '3', handler: () => setFinalSentiment('neutral') },
+      { key: 'q', handler: () => setFinalDiscoursePolarization('partisan') },
+      { key: 'w', handler: () => setFinalDiscoursePolarization('objective') },
+      { key: 'e', handler: () => setFinalDiscoursePolarization('non_polarized') },
+      {
+        key: 'Enter',
+        ctrl: true,
+        preventDefault: true,
+        handler: () => {
+          void saveFinalDecision()
+        },
+      },
+      {
+        key: 'Enter',
+        meta: true,
+        preventDefault: true,
+        handler: () => {
+          void saveFinalDecision()
+        },
+      },
+      {
+        key: 'ArrowRight',
+        alt: true,
+        preventDefault: true,
+        handler: () => {
+          void goToNext()
+        },
+      },
+      {
+        key: 'ArrowLeft',
+        alt: true,
+        preventDefault: true,
+        handler: () => {
+          goToPrevious()
+        },
+      },
+    ],
+    [goToNext, goToPrevious, saveFinalDecision, setFinalDiscoursePolarization, setFinalSentiment],
+  )
+
+  useHotkeys(hotkeys)
 
   if (!currentComment) {
     return <div>No comments available for adjudication.</div>
@@ -288,6 +352,12 @@ const AdjudicatorInterface: React.FC = () => {
         onJumpSubmit={handleJumpToComment}
         jumpMax={totalComments}
       />
+
+      <div className="shortcut-hints">
+        <span>
+          Shortcuts: 1/2/3 sentiment, Q/W/E discourse, Alt+←/→ navigate, Ctrl/Cmd+Enter save.
+        </span>
+      </div>
 
       <div className="adjudication-layout">
         <div className="comment-section">
