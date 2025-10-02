@@ -46,7 +46,10 @@ const AdjudicatorInterface: React.FC = () => {
   const commentsRef = useRef<Comment[]>([])
 
   useEffect(() => {
-    fetchData()
+    const load = async () => {
+      await fetchInitialData()
+    }
+    load()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -91,14 +94,6 @@ const AdjudicatorInterface: React.FC = () => {
     }
   }, [comments, annotations, finalAnnotations, totalComments])
 
-  const fetchData = async () => {
-    await Promise.all([
-      fetchInitialData(),
-      fetchAnnotations(),
-      fetchFinalAnnotations(),
-    ])
-  }
-
   const fetchInitialData = async () => {
     // Get total count first
     const { count } = await supabase
@@ -134,38 +129,57 @@ const AdjudicatorInterface: React.FC = () => {
         commentsRef.current = newComments
         return newComments
       })
-    }
-  }
 
-  const fetchAnnotations = async () => {
-    const { data } = await supabase
-      .from('annotations')
-      .select('*')
-      .order('comment_id, annotator_role')
+      const commentIds = data.map(comment => comment.id)
+      if (commentIds.length > 0) {
+        const [{ data: annotationsData, error: annotationsError }, { data: finalsData, error: finalsError }] = await Promise.all([
+          supabase
+            .from('annotations')
+            .select('*')
+            .in('comment_id', commentIds)
+            .order('comment_id, annotator_role'),
+          supabase
+            .from('final_annotations')
+            .select('*')
+            .in('comment_id', commentIds),
+        ])
 
-    if (data) {
-      const annotationsMap = data.reduce((acc, annotation) => {
-        if (!acc[annotation.comment_id]) {
-          acc[annotation.comment_id] = []
+        if (annotationsError) {
+          console.error('Adjudicator error loading annotations batch:', annotationsError)
+        } else if (annotationsData) {
+          const grouped = annotationsData.reduce((acc, annotation) => {
+            if (!acc[annotation.comment_id]) {
+              acc[annotation.comment_id] = []
+            }
+            acc[annotation.comment_id].push(annotation)
+            return acc
+          }, {} as Record<number, Annotation[]>)
+
+          setAnnotations(prev => {
+            const updated = { ...prev }
+            commentIds.forEach(id => {
+              if (grouped[id] && grouped[id].length > 0) {
+                updated[id] = grouped[id]
+              } else {
+                delete updated[id]
+              }
+            })
+            return updated
+          })
         }
-        acc[annotation.comment_id].push(annotation)
-        return acc
-      }, {} as Record<number, Annotation[]>)
-      setAnnotations(annotationsMap)
-    }
-  }
 
-  const fetchFinalAnnotations = async () => {
-    const { data } = await supabase
-      .from('final_annotations')
-      .select('*')
-
-    if (data) {
-      const finalAnnotationsMap = data.reduce((acc, finalAnnotation) => {
-        acc[finalAnnotation.comment_id] = finalAnnotation
-        return acc
-      }, {} as Record<number, FinalAnnotation>)
-      setFinalAnnotations(finalAnnotationsMap)
+        if (finalsError) {
+          console.error('Adjudicator error loading final annotations batch:', finalsError)
+        } else if (finalsData) {
+          setFinalAnnotations(prev => {
+            const updated = { ...prev }
+            finalsData.forEach(finalAnnotation => {
+              updated[finalAnnotation.comment_id] = finalAnnotation
+            })
+            return updated
+          })
+        }
+      }
     }
   }
 

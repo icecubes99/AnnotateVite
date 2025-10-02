@@ -67,7 +67,6 @@ const AnnotationInterface: React.FC = () => {
       setHasPositionedInitial(false)
 
       await fetchInitialData()
-      await fetchAnnotations()
     }
 
     loadData()
@@ -115,6 +114,7 @@ const AnnotationInterface: React.FC = () => {
 
     // Load only first batch of comments
     await loadCommentsBatch(0)
+    setAnnotationsLoaded(true)
   }
 
   const loadCommentsBatch = useCallback(async (startIndex: number, batchSize: number = BATCH_SIZE) => {
@@ -143,27 +143,31 @@ const AnnotationInterface: React.FC = () => {
       return newComments
     })
 
-    return data
-  }, [])
+    if (currentRole && currentRole !== 'adjudicator') {
+      const commentIds = data.map(comment => comment.id)
+      if (commentIds.length > 0) {
+        const { data: annotationsData, error: annotationsError } = await supabase
+          .from('annotations')
+          .select('*')
+          .in('comment_id', commentIds)
+          .eq('annotator_role', currentRole)
 
-  const fetchAnnotations = async () => {
-    if (!currentRole || currentRole === 'adjudicator') return
-
-    const { data } = await supabase
-      .from('annotations')
-      .select('*')
-      .eq('annotator_role', currentRole)
-
-    if (data) {
-      const annotationsMap = data.reduce((acc, annotation) => {
-        acc[annotation.comment_id] = annotation
-        return acc
-      }, {} as Record<number, Annotation>)
-      setAnnotations(annotationsMap)
+        if (annotationsError) {
+          console.error('Error loading annotations for batch:', annotationsError)
+        } else if (annotationsData) {
+          setAnnotations(prev => {
+            const updated = { ...prev }
+            annotationsData.forEach(annotation => {
+              updated[annotation.comment_id] = annotation
+            })
+            return updated
+          })
+        }
+      }
     }
 
-    setAnnotationsLoaded(true)
-  }
+    return data
+  }, [currentRole])
 
   const findAndPositionFirstUnannotated = useCallback(async () => {
     if (!currentRole || currentRole === 'adjudicator' || totalComments === 0) {
