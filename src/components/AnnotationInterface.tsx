@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useApp } from '../contexts/AppContext'
 import { supabase } from '../lib/supabase'
 
@@ -21,37 +21,54 @@ interface Annotation {
   created_at: string
 }
 
+const BATCH_SIZE = 100
+
 const AnnotationInterface: React.FC = () => {
   const { currentRole } = useApp()
-  const [comments, setComments] = useState<Comment[]>([])
+  const [comments, setComments] = useState<Array<Comment | null>>([])
   const [totalComments, setTotalComments] = useState(0)
   const [currentCommentIndex, setCurrentCommentIndex] = useState(0)
   const [sentiment, setSentiment] = useState<'positive' | 'negative' | 'neutral' | ''>('')
   const [discoursePolarization, setDiscoursePolarization] = useState<'partisan' | 'objective' | 'non_polarized' | ''>('')
   const [loading, setLoading] = useState(false)
   const [annotations, setAnnotations] = useState<Record<number, Annotation>>({})
+  const [annotationsLoaded, setAnnotationsLoaded] = useState(false)
   const [jumpToComment, setJumpToComment] = useState('')
   const commentSectionRef = useRef<HTMLDivElement>(null)
   const annotationSectionRef = useRef<HTMLDivElement>(null)
+  const commentsRef = useRef<Array<Comment | null>>([])
+  const [hasPositionedInitial, setHasPositionedInitial] = useState(false)
 
   useEffect(() => {
-    const loadDataAndNavigate = async () => {
+    commentsRef.current = comments
+  }, [comments])
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!currentRole || currentRole === 'adjudicator') {
+        commentsRef.current = []
+        setComments([])
+        setAnnotations({})
+        setTotalComments(0)
+        setCurrentCommentIndex(0)
+        setAnnotationsLoaded(false)
+        setHasPositionedInitial(false)
+        return
+      }
+
+      commentsRef.current = []
+      setComments([])
+      setAnnotations({})
+      setCurrentCommentIndex(0)
+      setAnnotationsLoaded(false)
+      setHasPositionedInitial(false)
+
       await fetchInitialData()
       await fetchAnnotations()
     }
-    loadDataAndNavigate()
-  }, [currentRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Navigate to first unannotated comment when data is loaded
-  useEffect(() => {
-    if (totalComments > 0 && Object.keys(annotations).length >= 0) {
-      // Find first unannotated comment in loaded batch
-      const firstUnannotatedIndex = comments.findIndex(comment => comment && !annotations[comment.id])
-      if (firstUnannotatedIndex !== -1) {
-        setCurrentCommentIndex(firstUnannotatedIndex)
-      }
-    }
-  }, [comments, annotations, totalComments])
+    loadData()
+  }, [currentRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Equal height effect
   useEffect(() => {
@@ -94,10 +111,10 @@ const AnnotationInterface: React.FC = () => {
     console.log('Total comments in database:', count)
 
     // Load only first batch of comments
-    await loadCommentsBatch(0, 100)
+    await loadCommentsBatch(0)
   }
 
-  const loadCommentsBatch = async (startIndex: number, batchSize: number = 100) => {
+  const loadCommentsBatch = useCallback(async (startIndex: number, batchSize: number = BATCH_SIZE) => {
     const { data, error } = await supabase
       .from('comments')
       .select('*')
@@ -106,20 +123,25 @@ const AnnotationInterface: React.FC = () => {
 
     if (error) {
       console.error('Error loading comments batch:', error)
-      return
+      return [] as Comment[]
     }
 
-    if (data) {
-      // Update comments array - replace or extend
-      setComments(prev => {
-        const newComments = [...prev]
-        data.forEach((comment, index) => {
-          newComments[startIndex + index] = comment
-        })
-        return newComments
-      })
+    if (!data) {
+      return [] as Comment[]
     }
-  }
+
+    // Update comments array - replace or extend
+    setComments(prev => {
+      const newComments = [...prev]
+      data.forEach((comment, index) => {
+        newComments[startIndex + index] = comment
+      })
+      commentsRef.current = newComments
+      return newComments
+    })
+
+    return data
+  }, [])
 
   const fetchAnnotations = async () => {
     if (!currentRole || currentRole === 'adjudicator') return
@@ -136,7 +158,67 @@ const AnnotationInterface: React.FC = () => {
       }, {} as Record<number, Annotation>)
       setAnnotations(annotationsMap)
     }
+
+    setAnnotationsLoaded(true)
   }
+
+  const findAndPositionFirstUnannotated = useCallback(async () => {
+    if (!currentRole || currentRole === 'adjudicator' || totalComments === 0) {
+      return false
+    }
+
+    for (let start = 0; start < totalComments; start += BATCH_SIZE) {
+      const expectedSize = Math.min(BATCH_SIZE, Math.max(totalComments - start, 0))
+      let batch = commentsRef.current.slice(start, start + BATCH_SIZE)
+      const hasCompleteData = batch.length === expectedSize && batch.every(comment => Boolean(comment))
+
+      if (!hasCompleteData) {
+        const fetched = await loadCommentsBatch(start)
+        if (fetched.length === 0) {
+          continue
+        }
+        batch = fetched
+      }
+
+      for (let offset = 0; offset < batch.length; offset++) {
+        const comment = batch[offset]
+        if (comment && !annotations[comment.id]) {
+          setCurrentCommentIndex(start + offset)
+          return true
+        }
+      }
+    }
+
+    // Default to the first comment when everything is annotated
+    setCurrentCommentIndex(0)
+    return false
+  }, [annotations, currentRole, loadCommentsBatch, totalComments])
+
+  // Navigate to first unannotated comment when data is loaded
+  useEffect(() => {
+    if (!annotationsLoaded || hasPositionedInitial || !totalComments) {
+      return
+    }
+
+    let isActive = true
+
+    const position = async () => {
+      const found = await findAndPositionFirstUnannotated()
+      if (isActive) {
+        setHasPositionedInitial(true)
+        if (!found) {
+          setSentiment('')
+          setDiscoursePolarization('')
+        }
+      }
+    }
+
+    position()
+
+    return () => {
+      isActive = false
+    }
+  }, [annotationsLoaded, findAndPositionFirstUnannotated, hasPositionedInitial, totalComments])
 
   const currentComment = comments[currentCommentIndex]
   const currentAnnotation = currentComment ? annotations[currentComment.id] : null
@@ -208,8 +290,8 @@ const AnnotationInterface: React.FC = () => {
 
       // Load comment if not already loaded
       if (!comments[nextIndex]) {
-        const batchStart = Math.floor(nextIndex / 100) * 100
-        await loadCommentsBatch(batchStart, 100)
+        const batchStart = Math.floor(nextIndex / BATCH_SIZE) * BATCH_SIZE
+        await loadCommentsBatch(batchStart)
       }
 
       setCurrentCommentIndex(nextIndex)
@@ -224,7 +306,8 @@ const AnnotationInterface: React.FC = () => {
 
   const goToNextUnannotated = async () => {
     // Look in loaded comments first
-    const nextUnannotatedIndex = comments.findIndex((comment, index) =>
+    const commentsSnapshot = commentsRef.current
+    const nextUnannotatedIndex = commentsSnapshot.findIndex((comment, index) =>
       index > currentCommentIndex && comment && !annotations[comment.id]
     )
 
@@ -232,11 +315,12 @@ const AnnotationInterface: React.FC = () => {
       setCurrentCommentIndex(nextUnannotatedIndex)
     } else {
       // If not found in loaded comments, load next batch and search
-      const nextBatchStart = Math.floor((currentCommentIndex + 1) / 100) * 100
+      const nextBatchStart = Math.floor((currentCommentIndex + 1) / BATCH_SIZE) * BATCH_SIZE
       if (nextBatchStart < totalComments) {
-        await loadCommentsBatch(nextBatchStart, 100)
+        await loadCommentsBatch(nextBatchStart)
         // Retry search after loading
-        const retryIndex = comments.findIndex((comment, index) =>
+        const updatedSnapshot = commentsRef.current
+        const retryIndex = updatedSnapshot.findIndex((comment, index) =>
           index > currentCommentIndex && comment && !annotations[comment.id]
         )
         if (retryIndex !== -1) {
@@ -253,8 +337,8 @@ const AnnotationInterface: React.FC = () => {
 
       // Load comment if not already loaded
       if (!comments[targetIndex]) {
-        const batchStart = Math.floor(targetIndex / 100) * 100
-        await loadCommentsBatch(batchStart, 100)
+        const batchStart = Math.floor(targetIndex / BATCH_SIZE) * BATCH_SIZE
+        await loadCommentsBatch(batchStart)
       }
 
       setCurrentCommentIndex(targetIndex)
