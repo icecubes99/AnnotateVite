@@ -177,11 +177,28 @@ const AdjudicatorInterface: React.FC = () => {
     if (currentFinalAnnotation) {
       setFinalSentiment(currentFinalAnnotation.final_sentiment)
       setFinalDiscoursePolarization(currentFinalAnnotation.final_discourse_polarization)
+      return
+    }
+
+    if (currentAnnotations.length === 2) {
+      const [first, second] = currentAnnotations
+
+      if (first.sentiment === second.sentiment) {
+        setFinalSentiment(first.sentiment)
+      } else {
+        setFinalSentiment('')
+      }
+
+      if (first.discourse_polarization === second.discourse_polarization) {
+        setFinalDiscoursePolarization(first.discourse_polarization)
+      } else {
+        setFinalDiscoursePolarization('')
+      }
     } else {
       setFinalSentiment('')
       setFinalDiscoursePolarization('')
     }
-  }, [currentFinalAnnotation, currentCommentIndex])
+  }, [currentAnnotations, currentCommentIndex, currentFinalAnnotation])
 
   const saveFinalDecision = useCallback(async () => {
     if (loading || !currentComment || !finalSentiment || !finalDiscoursePolarization) {
@@ -355,7 +372,7 @@ const AdjudicatorInterface: React.FC = () => {
 
       <div className="shortcut-hints">
         <span>
-          Shortcuts: 1/2/3 sentiment, Q/W/E discourse, Alt+←/→ navigate, Ctrl/Cmd+Enter save.
+          Shortcuts: 1/2/3 sentiment, Q/W/E discourse, Alt/Option+←/→ navigate, Ctrl/Cmd+Enter save.
         </span>
       </div>
 
