@@ -186,11 +186,54 @@ const AdjudicatorInterface: React.FC = () => {
   )
 
   const fetchInitialData = useCallback(async () => {
+    let initialIndex = 0
+    let targetCommentId: number | null = null
+
+    const { data: lastFinal, error: lastFinalError } = await supabase
+      .from('final_annotations')
+      .select('comment_id')
+      .order('comment_id', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (lastFinalError) {
+      console.error('Error retrieving last adjudicated comment:', lastFinalError)
+    }
+
+    if (lastFinal?.comment_id) {
+      const { data: nextComment, error: nextCommentError } = await supabase
+        .from('comments')
+        .select('id')
+        .gt('id', lastFinal.comment_id)
+        .order('id')
+        .limit(1)
+        .maybeSingle()
+
+      if (nextCommentError) {
+        console.error('Error retrieving next comment after last adjudication:', nextCommentError)
+      }
+
+      targetCommentId = nextComment?.id ?? lastFinal.comment_id
+
+      const { count: precedingCount, error: precedingError } = await supabase
+        .from('comments')
+        .select('id', { count: 'exact', head: true })
+        .lt('id', targetCommentId)
+
+      if (precedingError) {
+        console.error('Error calculating adjudication resume position:', precedingError)
+      } else if (typeof precedingCount === 'number') {
+        initialIndex = precedingCount
+      }
+    }
+
+    const batchStart = Math.floor(initialIndex / BATCH_SIZE) * BATCH_SIZE
+
     const { data, count, error } = await supabase
       .from('comments')
       .select('*', { count: 'exact' })
       .order('id')
-      .range(0, BATCH_SIZE - 1)
+      .range(batchStart, batchStart + BATCH_SIZE - 1)
 
     if (error) {
       console.error('Adjudicator error loading initial comments:', error)
@@ -198,17 +241,26 @@ const AdjudicatorInterface: React.FC = () => {
       return
     }
 
-    setTotalComments(count || 0)
-    const { count: completedCount } = await supabase
+    const total = count || 0
+    setTotalComments(total)
+
+    const { count: completedCount, error: completedError } = await supabase
       .from('final_annotations')
       .select('comment_id', { count: 'exact', head: true })
+
+    if (completedError) {
+      console.error('Error counting adjudicated comments:', completedError)
+    }
 
     setFinalizedTotal(completedCount || 0)
     console.log('Adjudicator - Total comments in database:', count)
 
+    const clampedIndex = total > 0 ? Math.min(initialIndex, total - 1) : 0
+
     if (data) {
-      await processCommentsBatch(0, data)
-      maybePrefetchNextBatch(0, BATCH_SIZE, count || 0, commentsRef, loadCommentsBatch)
+      await processCommentsBatch(batchStart, data)
+      maybePrefetchNextBatch(batchStart, BATCH_SIZE, total, commentsRef, loadCommentsBatch)
+      setCurrentCommentIndex(clampedIndex)
     }
   }, [loadCommentsBatch, processCommentsBatch])
 

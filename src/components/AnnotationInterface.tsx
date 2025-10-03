@@ -149,11 +149,56 @@ const AnnotationInterface: React.FC = () => {
   )
 
   const fetchInitialData = useCallback(async () => {
+    let initialIndex = 0
+    let targetCommentId: number | null = null
+
+    if (currentRole && currentRole !== 'adjudicator') {
+      const { data: lastAnnotation, error: lastAnnotationError } = await supabase
+        .from('annotations')
+        .select('comment_id')
+        .eq('annotator_role', currentRole)
+        .order('comment_id', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (lastAnnotationError) {
+        console.error('Error retrieving last annotation:', lastAnnotationError)
+      }
+
+      if (lastAnnotation?.comment_id) {
+        const { data: nextComment, error: nextCommentError } = await supabase
+          .from('comments')
+          .select('id')
+          .gt('id', lastAnnotation.comment_id)
+          .order('id')
+          .limit(1)
+          .maybeSingle()
+
+        if (nextCommentError) {
+          console.error('Error retrieving next comment after last annotation:', nextCommentError)
+        }
+
+        targetCommentId = nextComment?.id ?? lastAnnotation.comment_id
+
+        const { count: precedingCount, error: precedingError } = await supabase
+          .from('comments')
+          .select('id', { count: 'exact', head: true })
+          .lt('id', targetCommentId)
+
+        if (precedingError) {
+          console.error('Error calculating comment position:', precedingError)
+        } else if (typeof precedingCount === 'number') {
+          initialIndex = precedingCount
+        }
+      }
+    }
+
+    const batchStart = Math.floor(initialIndex / BATCH_SIZE) * BATCH_SIZE
     const { data, count, error } = await supabase
       .from('comments')
       .select('*', { count: 'exact' })
       .order('id')
-      .range(0, BATCH_SIZE - 1)
+      .range(batchStart, batchStart + BATCH_SIZE - 1)
 
     if (error) {
       console.error('Error loading initial comments:', error)
@@ -162,22 +207,32 @@ const AnnotationInterface: React.FC = () => {
       return
     }
 
-    setTotalComments(count || 0)
+    const total = count || 0
+    setTotalComments(total)
+
     if (currentRole && currentRole !== 'adjudicator') {
-      const { count: annotatedCount } = await supabase
+      const { count: annotatedCount, error: annotatedError } = await supabase
         .from('annotations')
         .select('comment_id', { count: 'exact', head: true })
         .eq('annotator_role', currentRole)
+
+      if (annotatedError) {
+        console.error('Error counting annotations for role:', annotatedError)
+      }
 
       setAnnotatedTotal(annotatedCount || 0)
     } else {
       setAnnotatedTotal(0)
     }
-    console.log('Total comments in database:', count)
+
+    const clampedIndex = total > 0 ? Math.min(initialIndex, total - 1) : 0
 
     if (data) {
-      await processCommentsBatch(0, data)
-      maybePrefetchNextBatch(0, BATCH_SIZE, count || 0, commentsRef, loadCommentsBatch)
+      await processCommentsBatch(batchStart, data)
+      maybePrefetchNextBatch(batchStart, BATCH_SIZE, total, commentsRef, loadCommentsBatch)
+
+      setCurrentCommentIndex(clampedIndex)
+      setHasPositionedInitial(true)
     }
 
     setAnnotationsLoaded(true)
