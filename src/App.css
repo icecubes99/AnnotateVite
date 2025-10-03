@@ -810,7 +810,6 @@ h4 {
 .comment-section {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
 }
 
 .adjudication-section {

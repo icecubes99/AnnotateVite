@@ -506,7 +506,12 @@ const AnnotationInterface: React.FC = () => {
         ctrl: true,
         preventDefault: true,
         handler: () => {
-          void saveAnnotation()
+          void (async () => {
+            const saved = await saveAnnotation()
+            if (saved) {
+              await goToNext()
+            }
+          })()
         },
       },
       {
@@ -514,7 +519,12 @@ const AnnotationInterface: React.FC = () => {
         meta: true,
         preventDefault: true,
         handler: () => {
-          void saveAnnotation()
+          void (async () => {
+            const saved = await saveAnnotation()
+            if (saved) {
+              await goToNext()
+            }
+          })()
         },
       },
       {

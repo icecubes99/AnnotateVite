@@ -413,7 +413,12 @@ const AdjudicatorInterface: React.FC = () => {
         ctrl: true,
         preventDefault: true,
         handler: () => {
-          void saveFinalDecision()
+          void (async () => {
+            const saved = await saveFinalDecision()
+            if (saved) {
+              await goToNext()
+            }
+          })()
         },
       },
       {
@@ -421,7 +426,12 @@ const AdjudicatorInterface: React.FC = () => {
         meta: true,
         preventDefault: true,
         handler: () => {
-          void saveFinalDecision()
+          void (async () => {
+            const saved = await saveFinalDecision()
+            if (saved) {
+              await goToNext()
+            }
+          })()
         },
       },
       {
