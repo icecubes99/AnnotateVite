@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import CommentDisplay from './common/CommentDisplay'
 import CommentNavigation from './common/CommentNavigation'
 import useHotkeys from '../hooks/useHotkeys'
+import { maybePrefetchNextBatch, mergeCommentBatch } from '../utils/commentBatchUtils'
 
 interface Comment {
   id: number
@@ -38,19 +39,13 @@ const AdjudicatorInterface: React.FC = () => {
   const [totalComments, setTotalComments] = useState(0)
   const [annotations, setAnnotations] = useState<Record<number, Annotation[]>>({})
   const [finalAnnotations, setFinalAnnotations] = useState<Record<number, FinalAnnotation>>({})
+  const [finalizedTotal, setFinalizedTotal] = useState(0)
   const [currentCommentIndex, setCurrentCommentIndex] = useState(0)
   const [finalSentiment, setFinalSentiment] = useState<'positive' | 'negative' | 'neutral' | ''>('')
   const [finalDiscoursePolarization, setFinalDiscoursePolarization] = useState<'partisan' | 'objective' | 'non_polarized' | ''>('')
   const [loading, setLoading] = useState(false)
   const [jumpToComment, setJumpToComment] = useState('')
   const commentsRef = useRef<Comment[]>([])
-
-  useEffect(() => {
-    const load = async () => {
-      await fetchInitialData()
-    }
-    load()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     commentsRef.current = comments
@@ -94,53 +89,28 @@ const AdjudicatorInterface: React.FC = () => {
     }
   }, [comments, annotations, finalAnnotations, totalComments])
 
-  const fetchInitialData = async () => {
-    // Get total count first
-    const { count } = await supabase
-      .from('comments')
-      .select('*', { count: 'exact', head: true })
+  const processCommentsBatch = useCallback(
+    async (startIndex: number, data: Comment[]) => {
+      if (!data || data.length === 0) {
+        return [] as Comment[]
+      }
 
-    setTotalComments(count || 0)
-    console.log('Adjudicator - Total comments in database:', count)
-
-    // Load only first batch of comments
-    await loadCommentsBatch(0)
-  }
-
-  const loadCommentsBatch = async (startIndex: number, batchSize: number = BATCH_SIZE) => {
-    const { data, error } = await supabase
-      .from('comments')
-      .select('*')
-      .order('id')
-      .range(startIndex, startIndex + batchSize - 1)
-
-    if (error) {
-      console.error('Adjudicator error loading comments batch:', error)
-      return
-    }
-
-    if (data) {
-      // Update comments array - replace or extend
-      setComments(prev => {
-        const newComments = [...prev]
-        data.forEach((comment, index) => {
-          newComments[startIndex + index] = comment
-        })
-        commentsRef.current = newComments
-        return newComments
-      })
+      mergeCommentBatch(startIndex, data, setComments, commentsRef)
 
       const commentIds = data.map(comment => comment.id)
       if (commentIds.length > 0) {
-        const [{ data: annotationsData, error: annotationsError }, { data: finalsData, error: finalsError }] = await Promise.all([
+        const [
+          { data: annotationsData, error: annotationsError },
+          { data: finalsData, error: finalsError },
+        ] = await Promise.all([
           supabase
             .from('annotations')
-            .select('*')
+            .select('id, comment_id, annotator_role, sentiment, discourse_polarization, created_at')
             .in('comment_id', commentIds)
             .order('comment_id, annotator_role'),
           supabase
             .from('final_annotations')
-            .select('*')
+            .select('id, comment_id, final_sentiment, final_discourse_polarization, created_at')
             .in('comment_id', commentIds),
         ])
 
@@ -180,8 +150,74 @@ const AdjudicatorInterface: React.FC = () => {
           })
         }
       }
+
+      return data
+    },
+    [],
+  )
+
+  const loadCommentsBatch = useCallback(
+    async (
+      startIndex: number,
+      batchSize: number = BATCH_SIZE,
+      options: { prefetchNext?: boolean } = {},
+    ) => {
+      const { prefetchNext = true } = options
+      const { data, error } = await supabase
+        .from('comments')
+        .select('*')
+        .order('id')
+        .range(startIndex, startIndex + batchSize - 1)
+
+      if (error) {
+        console.error('Adjudicator error loading comments batch:', error)
+        return
+      }
+
+      if (data) {
+        await processCommentsBatch(startIndex, data)
+
+        if (prefetchNext) {
+          maybePrefetchNextBatch(startIndex, batchSize, totalComments, commentsRef, loadCommentsBatch)
+        }
+      }
+    },
+    [processCommentsBatch, totalComments],
+  )
+
+  const fetchInitialData = useCallback(async () => {
+    const { data, count, error } = await supabase
+      .from('comments')
+      .select('*', { count: 'exact' })
+      .order('id')
+      .range(0, BATCH_SIZE - 1)
+
+    if (error) {
+      console.error('Adjudicator error loading initial comments:', error)
+      setTotalComments(0)
+      return
     }
-  }
+
+    setTotalComments(count || 0)
+    const { count: completedCount } = await supabase
+      .from('final_annotations')
+      .select('comment_id', { count: 'exact', head: true })
+
+    setFinalizedTotal(completedCount || 0)
+    console.log('Adjudicator - Total comments in database:', count)
+
+    if (data) {
+      await processCommentsBatch(0, data)
+      maybePrefetchNextBatch(0, BATCH_SIZE, count || 0, commentsRef, loadCommentsBatch)
+    }
+  }, [loadCommentsBatch, processCommentsBatch])
+
+  useEffect(() => {
+    const load = async () => {
+      await fetchInitialData()
+    }
+    void load()
+  }, [fetchInitialData])
 
   const currentComment = comments[currentCommentIndex]
   const currentAnnotations = currentComment ? annotations[currentComment.id] || [] : []
@@ -259,6 +295,7 @@ const AdjudicatorInterface: React.FC = () => {
             ...prev,
             [currentComment.id]: data
           }))
+          setFinalizedTotal(prev => prev + 1)
           success = true
         }
       }
@@ -309,8 +346,7 @@ const AdjudicatorInterface: React.FC = () => {
     }
   }, [jumpToComment, loadCommentsBatch, totalComments])
 
-  const finalizedCount = Object.keys(finalAnnotations).length
-  const progress = totalComments > 0 ? (finalizedCount / totalComments) * 100 : 0
+  const progress = totalComments > 0 ? (finalizedTotal / totalComments) * 100 : 0
 
   const hotkeys = useMemo(
     () => [
@@ -367,7 +403,7 @@ const AdjudicatorInterface: React.FC = () => {
       <div className="header">
         <h2>Adjudicator Interface</h2>
         <div className="progress">
-          Progress: {finalizedCount}/{totalComments} ({progress.toFixed(1)}%)
+          Progress: {finalizedTotal}/{totalComments} ({progress.toFixed(1)}%)
         </div>
       </div>
 

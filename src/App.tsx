@@ -29,11 +29,11 @@ const AppContent: React.FC = () => {
           <div className="app-content-inner">
             {currentRole === 'adjudicator' ? (
               <>
+                <AdjudicatorInterface />
                 <div className="admin-section">
                   <CSVLoader />
                   <KappaCalculator />
-                 </div>
-                <AdjudicatorInterface />
+                </div>
               </>
             ) : (
               <AnnotationInterface />

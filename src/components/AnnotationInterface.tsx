@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import CommentDisplay from './common/CommentDisplay'
 import CommentNavigation from './common/CommentNavigation'
 import useHotkeys from '../hooks/useHotkeys'
+import { maybePrefetchNextBatch, mergeCommentBatch } from '../utils/commentBatchUtils'
 
 interface Comment {
   id: number
@@ -35,6 +36,7 @@ const AnnotationInterface: React.FC = () => {
   const [discoursePolarization, setDiscoursePolarization] = useState<'partisan' | 'objective' | 'non_polarized' | ''>('')
   const [loading, setLoading] = useState(false)
   const [annotations, setAnnotations] = useState<Record<number, Annotation>>({})
+  const [annotatedTotal, setAnnotatedTotal] = useState(0)
   const [annotationsLoaded, setAnnotationsLoaded] = useState(false)
   const [jumpToComment, setJumpToComment] = useState('')
   const commentSectionRef = useRef<HTMLDivElement>(null)
@@ -45,32 +47,6 @@ const AnnotationInterface: React.FC = () => {
   useEffect(() => {
     commentsRef.current = comments
   }, [comments])
-
-  useEffect(() => {
-    const loadData = async () => {
-      if (!currentRole || currentRole === 'adjudicator') {
-        commentsRef.current = []
-        setComments([])
-        setAnnotations({})
-        setTotalComments(0)
-        setCurrentCommentIndex(0)
-        setAnnotationsLoaded(false)
-        setHasPositionedInitial(false)
-        return
-      }
-
-      commentsRef.current = []
-      setComments([])
-      setAnnotations({})
-      setCurrentCommentIndex(0)
-      setAnnotationsLoaded(false)
-      setHasPositionedInitial(false)
-
-      await fetchInitialData()
-    }
-
-    loadData()
-  }, [currentRole]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Equal height effect
   useEffect(() => {
@@ -103,71 +79,136 @@ const AnnotationInterface: React.FC = () => {
     }
   }, [currentCommentIndex, sentiment, discoursePolarization]) // Re-run when content changes
 
-  const fetchInitialData = async () => {
-    // Get total count first
-    const { count } = await supabase
-      .from('comments')
-      .select('*', { count: 'exact', head: true })
+  const processCommentsBatch = useCallback(
+    async (startIndex: number, data: Comment[]) => {
+      if (!data || data.length === 0) {
+        return [] as Comment[]
+      }
 
-    setTotalComments(count || 0)
-    console.log('Total comments in database:', count)
+      mergeCommentBatch(startIndex, data, setComments, commentsRef)
 
-    // Load only first batch of comments
-    await loadCommentsBatch(0)
-    setAnnotationsLoaded(true)
-  }
+      if (currentRole && currentRole !== 'adjudicator') {
+        const commentIds = data.map(comment => comment.id)
+        if (commentIds.length > 0) {
+          const { data: annotationsData, error: annotationsError } = await supabase
+            .from('annotations')
+            .select('id, comment_id, annotator_role, sentiment, discourse_polarization, created_at')
+            .in('comment_id', commentIds)
+            .eq('annotator_role', currentRole)
 
-  const loadCommentsBatch = useCallback(async (startIndex: number, batchSize: number = BATCH_SIZE) => {
-    const { data, error } = await supabase
-      .from('comments')
-      .select('*')
-      .order('id')
-      .range(startIndex, startIndex + batchSize - 1)
-
-    if (error) {
-      console.error('Error loading comments batch:', error)
-      return [] as Comment[]
-    }
-
-    if (!data) {
-      return [] as Comment[]
-    }
-
-    // Update comments array - replace or extend
-    setComments(prev => {
-      const newComments = [...prev]
-      data.forEach((comment, index) => {
-        newComments[startIndex + index] = comment
-      })
-      commentsRef.current = newComments
-      return newComments
-    })
-
-    if (currentRole && currentRole !== 'adjudicator') {
-      const commentIds = data.map(comment => comment.id)
-      if (commentIds.length > 0) {
-        const { data: annotationsData, error: annotationsError } = await supabase
-          .from('annotations')
-          .select('*')
-          .in('comment_id', commentIds)
-          .eq('annotator_role', currentRole)
-
-        if (annotationsError) {
-          console.error('Error loading annotations for batch:', annotationsError)
-        } else if (annotationsData) {
-          setAnnotations(prev => {
-            const updated = { ...prev }
-            annotationsData.forEach(annotation => {
-              updated[annotation.comment_id] = annotation
+          if (annotationsError) {
+            console.error('Error loading annotations for batch:', annotationsError)
+          } else if (annotationsData) {
+            setAnnotations(prev => {
+              const updated = { ...prev }
+              annotationsData.forEach(annotation => {
+                updated[annotation.comment_id] = annotation
+              })
+              return updated
             })
-            return updated
-          })
+          }
         }
       }
+
+      return data
+    },
+    [currentRole],
+  )
+
+  const loadCommentsBatch = useCallback(
+    async (
+      startIndex: number,
+      batchSize: number = BATCH_SIZE,
+      options: { prefetchNext?: boolean } = {},
+    ) => {
+      const { prefetchNext = true } = options
+      const { data, error } = await supabase
+        .from('comments')
+        .select('*')
+        .order('id')
+        .range(startIndex, startIndex + batchSize - 1)
+
+      if (error) {
+        console.error('Error loading comments batch:', error)
+        return [] as Comment[]
+      }
+
+      if (!data) {
+        return [] as Comment[]
+      }
+
+      const processed = await processCommentsBatch(startIndex, data)
+
+      if (prefetchNext) {
+        maybePrefetchNextBatch(startIndex, batchSize, totalComments, commentsRef, loadCommentsBatch)
+      }
+
+      return processed
+    },
+    [processCommentsBatch, totalComments],
+  )
+
+  const fetchInitialData = useCallback(async () => {
+    const { data, count, error } = await supabase
+      .from('comments')
+      .select('*', { count: 'exact' })
+      .order('id')
+      .range(0, BATCH_SIZE - 1)
+
+    if (error) {
+      console.error('Error loading initial comments:', error)
+      setTotalComments(0)
+      setAnnotationsLoaded(true)
+      return
     }
 
-    return data
-  }, [currentRole])
+    setTotalComments(count || 0)
+    if (currentRole && currentRole !== 'adjudicator') {
+      const { count: annotatedCount } = await supabase
+        .from('annotations')
+        .select('comment_id', { count: 'exact', head: true })
+        .eq('annotator_role', currentRole)
+
+      setAnnotatedTotal(annotatedCount || 0)
+    } else {
+      setAnnotatedTotal(0)
+    }
+    console.log('Total comments in database:', count)
+
+    if (data) {
+      await processCommentsBatch(0, data)
+      maybePrefetchNextBatch(0, BATCH_SIZE, count || 0, commentsRef, loadCommentsBatch)
+    }
+
+    setAnnotationsLoaded(true)
+  }, [currentRole, loadCommentsBatch, processCommentsBatch])
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!currentRole || currentRole === 'adjudicator') {
+        commentsRef.current = []
+        setComments([])
+        setAnnotations({})
+        setAnnotatedTotal(0)
+        setTotalComments(0)
+        setCurrentCommentIndex(0)
+        setAnnotationsLoaded(false)
+        setHasPositionedInitial(false)
+        return
+      }
+
+      commentsRef.current = []
+      setComments([])
+      setAnnotations({})
+      setCurrentCommentIndex(0)
+      setAnnotationsLoaded(false)
+      setHasPositionedInitial(false)
+
+      await fetchInitialData()
+    }
+
+    void loadData()
+  }, [currentRole, fetchInitialData])
 
   const findAndPositionFirstUnannotated = useCallback(async () => {
     if (!currentRole || currentRole === 'adjudicator' || totalComments === 0) {
@@ -293,6 +334,7 @@ const AnnotationInterface: React.FC = () => {
             ...prev,
             [currentComment.id]: data
           }))
+          setAnnotatedTotal(prev => prev + 1)
           success = true
         }
       }
@@ -384,6 +426,7 @@ const AnnotationInterface: React.FC = () => {
         const newAnnotations = { ...annotations }
         delete newAnnotations[currentComment.id]
         setAnnotations(newAnnotations)
+        setAnnotatedTotal(prev => (prev > 0 ? prev - 1 : 0))
         setSentiment('')
         setDiscoursePolarization('')
       }
@@ -393,8 +436,7 @@ const AnnotationInterface: React.FC = () => {
     setLoading(false)
   }, [annotations, currentAnnotation, currentComment, loading])
 
-  const annotatedCount = Object.keys(annotations).length
-  const progress = totalComments > 0 ? (annotatedCount / totalComments) * 100 : 0
+  const progress = totalComments > 0 ? (annotatedTotal / totalComments) * 100 : 0
 
   const hotkeys = useMemo(
     () => [
@@ -474,7 +516,7 @@ const AnnotationInterface: React.FC = () => {
       <div className="header">
         <h2>Annotation Interface - {currentRole}</h2>
         <div className="progress">
-          Progress: {annotatedCount}/{totalComments} ({progress.toFixed(1)}%)
+          Progress: {annotatedTotal}/{totalComments} ({progress.toFixed(1)}%)
         </div>
       </div>
 
