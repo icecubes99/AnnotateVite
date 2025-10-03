@@ -456,6 +456,21 @@ const AdjudicatorInterface: React.FC = () => {
 
   useHotkeys(hotkeys)
 
+  if (comments.length === 0 && totalComments === 0) {
+    // No adjudication data at all
+    return (
+      <div className="empty-state">No comments available for adjudication.</div>
+    )
+  }
+
+  if (comments.length === 0 && totalComments > 0) {
+    return (
+      <div className="loading-state">
+        <div className="loading-spinner" role="status" aria-label="Loading comments" />
+      </div>
+    )
+  }
+
   if (!currentComment) {
     return <div>No comments available for adjudication.</div>
   }

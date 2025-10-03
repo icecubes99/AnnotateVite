@@ -572,8 +572,16 @@ const AnnotationInterface: React.FC = () => {
 
   useHotkeys(hotkeys)
 
+  if (!annotationsLoaded) {
+    return (
+      <div className="loading-state">
+        <div className="loading-spinner" role="status" aria-label="Loading comments" />
+      </div>
+    )
+  }
+
   if (!currentComment) {
-    return <div>No comments available for annotation.</div>
+    return <div className="empty-state">No comments available for annotation.</div>
   }
 
   return (
