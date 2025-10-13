@@ -45,6 +45,8 @@ const AdjudicatorInterface: React.FC = () => {
   const [finalDiscoursePolarization, setFinalDiscoursePolarization] = useState<'partisan' | 'objective' | 'non_polarized' | ''>('')
   const [loading, setLoading] = useState(false)
   const [jumpToComment, setJumpToComment] = useState('')
+  // Prevent auto-positioning from overriding user navigation
+  const [hasAutoPositioned, setHasAutoPositioned] = useState(false)
   const commentsRef = useRef<Comment[]>([])
 
   useEffect(() => {
@@ -61,9 +63,9 @@ const AdjudicatorInterface: React.FC = () => {
     return sentiment1 !== sentiment2 || discourse1 !== discourse2
   }
 
-  // Navigate to the next pending adjudication when the current comment is not actionable
+  // Auto-position once on initial load so it doesn't block manual back/jump
   useEffect(() => {
-    if (totalComments === 0 || comments.length === 0) {
+    if (hasAutoPositioned || totalComments === 0 || comments.length === 0) {
       return
     }
 
@@ -73,6 +75,7 @@ const AdjudicatorInterface: React.FC = () => {
     const currentNeedsAdjudication = !!currentComment && currentAnnotations.length === 2 && !currentFinalAnnotation
 
     if (currentNeedsAdjudication) {
+      setHasAutoPositioned(true)
       return
     }
 
@@ -88,6 +91,7 @@ const AdjudicatorInterface: React.FC = () => {
 
     if (firstDisagreementIndex !== -1 && firstDisagreementIndex !== currentCommentIndex) {
       setCurrentCommentIndex(firstDisagreementIndex)
+      setHasAutoPositioned(true)
       return
     }
 
@@ -100,7 +104,8 @@ const AdjudicatorInterface: React.FC = () => {
     if (firstUnfinishedIndex !== -1 && firstUnfinishedIndex !== currentCommentIndex) {
       setCurrentCommentIndex(firstUnfinishedIndex)
     }
-  }, [annotations, comments, finalAnnotations, totalComments, currentCommentIndex])
+    setHasAutoPositioned(true)
+  }, [annotations, comments, finalAnnotations, totalComments, currentCommentIndex, hasAutoPositioned])
 
   const processCommentsBatch = useCallback(
     async (startIndex: number, data: Comment[]) => {
