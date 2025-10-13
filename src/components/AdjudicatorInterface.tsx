@@ -61,33 +61,46 @@ const AdjudicatorInterface: React.FC = () => {
     return sentiment1 !== sentiment2 || discourse1 !== discourse2
   }
 
-  // Navigate to first unadjudicated comment with disagreement
+  // Navigate to the next pending adjudication when the current comment is not actionable
   useEffect(() => {
-    if (totalComments > 0 && Object.keys(annotations).length > 0) {
-      const firstDisagreementIndex = comments.findIndex(comment => {
-        if (!comment) return false
-        const commentAnnotations = annotations[comment.id] || []
-        const hasFinalAnnotation = finalAnnotations[comment.id]
-        const hasDisagreementResult = hasDisagreement(commentAnnotations)
-
-        return commentAnnotations.length === 2 && !hasFinalAnnotation && hasDisagreementResult
-      })
-
-      if (firstDisagreementIndex !== -1) {
-        setCurrentCommentIndex(firstDisagreementIndex)
-      } else {
-        // If no disagreements, find first comment without final annotation
-        const firstUnfinishedIndex = comments.findIndex(comment => {
-          if (!comment) return false
-          const commentAnnotations = annotations[comment.id] || []
-          return commentAnnotations.length === 2 && !finalAnnotations[comment.id]
-        })
-        if (firstUnfinishedIndex !== -1) {
-          setCurrentCommentIndex(firstUnfinishedIndex)
-        }
-      }
+    if (totalComments === 0 || comments.length === 0) {
+      return
     }
-  }, [comments, annotations, finalAnnotations, totalComments])
+
+    const currentComment = comments[currentCommentIndex]
+    const currentAnnotations = currentComment ? annotations[currentComment.id] || [] : []
+    const currentFinalAnnotation = currentComment ? finalAnnotations[currentComment.id] : undefined
+    const currentNeedsAdjudication = !!currentComment && currentAnnotations.length === 2 && !currentFinalAnnotation
+
+    if (currentNeedsAdjudication) {
+      return
+    }
+
+    const firstDisagreementIndex = comments.findIndex(comment => {
+      if (!comment) return false
+      const commentAnnotations = annotations[comment.id] || []
+      const hasFinal = finalAnnotations[comment.id]
+      if (commentAnnotations.length !== 2 || hasFinal) {
+        return false
+      }
+      return hasDisagreement(commentAnnotations)
+    })
+
+    if (firstDisagreementIndex !== -1 && firstDisagreementIndex !== currentCommentIndex) {
+      setCurrentCommentIndex(firstDisagreementIndex)
+      return
+    }
+
+    const firstUnfinishedIndex = comments.findIndex(comment => {
+      if (!comment) return false
+      const commentAnnotations = annotations[comment.id] || []
+      return commentAnnotations.length === 2 && !finalAnnotations[comment.id]
+    })
+
+    if (firstUnfinishedIndex !== -1 && firstUnfinishedIndex !== currentCommentIndex) {
+      setCurrentCommentIndex(firstUnfinishedIndex)
+    }
+  }, [annotations, comments, finalAnnotations, totalComments, currentCommentIndex])
 
   const processCommentsBatch = useCallback(
     async (startIndex: number, data: Comment[]) => {
