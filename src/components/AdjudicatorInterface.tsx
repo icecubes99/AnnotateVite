@@ -48,6 +48,8 @@ const AdjudicatorInterface: React.FC = () => {
   // Prevent auto-positioning from overriding user navigation
   const [hasAutoPositioned, setHasAutoPositioned] = useState(false)
   const commentsRef = useRef<Comment[]>([])
+  // Track whether we've initialized the form for the current comment index
+  const preparedIndexRef = useRef<number | null>(null)
 
   useEffect(() => {
     commentsRef.current = comments
@@ -293,32 +295,42 @@ const AdjudicatorInterface: React.FC = () => {
   const currentAnnotations = currentComment ? annotations[currentComment.id] || [] : []
   const currentFinalAnnotation = currentComment ? finalAnnotations[currentComment.id] : null
 
+  // Initialize or prefill the adjudication form per comment, without overriding
+  // user choices on subsequent re-renders (e.g., background fetches updating maps)
   useEffect(() => {
+    if (!currentComment) return
+
+    const isNewComment = preparedIndexRef.current !== currentCommentIndex
+
     if (currentFinalAnnotation) {
       setFinalSentiment(currentFinalAnnotation.final_sentiment)
       setFinalDiscoursePolarization(currentFinalAnnotation.final_discourse_polarization)
+      preparedIndexRef.current = currentCommentIndex
       return
     }
 
+    if (!isNewComment) {
+      // Avoid clobbering user selections once they start editing this comment
+      return
+    }
+
+    // Reset on entering a new comment
+    setFinalSentiment('')
+    setFinalDiscoursePolarization('')
+
+    // Prefill if annotators agree
     if (currentAnnotations.length === 2) {
       const [first, second] = currentAnnotations
-
       if (first.sentiment === second.sentiment) {
         setFinalSentiment(first.sentiment)
-      } else {
-        setFinalSentiment('')
       }
-
       if (first.discourse_polarization === second.discourse_polarization) {
         setFinalDiscoursePolarization(first.discourse_polarization)
-      } else {
-        setFinalDiscoursePolarization('')
       }
-    } else {
-      setFinalSentiment('')
-      setFinalDiscoursePolarization('')
     }
-  }, [currentAnnotations, currentCommentIndex, currentFinalAnnotation])
+
+    preparedIndexRef.current = currentCommentIndex
+  }, [currentAnnotations, currentComment, currentCommentIndex, currentFinalAnnotation])
 
   const saveFinalDecision = useCallback(async () => {
     if (loading || !currentComment || !finalSentiment || !finalDiscoursePolarization) {
