@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import CommentDisplay from './common/CommentDisplay'
 import CommentNavigation from './common/CommentNavigation'
@@ -303,9 +303,11 @@ const AdjudicatorInterface: React.FC = () => {
     const isNewComment = preparedIndexRef.current !== currentCommentIndex
 
     if (currentFinalAnnotation) {
-      setFinalSentiment(currentFinalAnnotation.final_sentiment)
-      setFinalDiscoursePolarization(currentFinalAnnotation.final_discourse_polarization)
-      preparedIndexRef.current = currentCommentIndex
+      if (isNewComment) {
+        setFinalSentiment(currentFinalAnnotation.final_sentiment)
+        setFinalDiscoursePolarization(currentFinalAnnotation.final_discourse_polarization)
+        preparedIndexRef.current = currentCommentIndex
+      }
       return
     }
 
@@ -529,7 +531,7 @@ const AdjudicatorInterface: React.FC = () => {
 
       <div className="shortcut-hints">
         <span>
-          Shortcuts: 1/2/3 sentiment, Q/W/E discourse, Alt/Option+←/→ navigate, Ctrl/Cmd+Enter save.
+          Shortcuts: 1/2/3 sentiment, Q/W/E discourse, Alt/Option+â†/â†’ navigate, Ctrl/Cmd+Enter save.
         </span>
       </div>
 
@@ -545,7 +547,7 @@ const AdjudicatorInterface: React.FC = () => {
           />
 
           <div className="annotations-comparison">
-            <h3>Annotator Responses {hasDisagreement(currentAnnotations) && <span className="disagreement">⚠️ Disagreement</span>}</h3>
+            <h3>Annotator Responses {hasDisagreement(currentAnnotations) && <span className="disagreement">âš ï¸ Disagreement</span>}</h3>
             <div className="annotators-grid">
               {currentAnnotations.map((annotation) => (
                 <div key={annotation.id} className="annotator-response">
@@ -652,3 +654,4 @@ const AdjudicatorInterface: React.FC = () => {
 }
 
 export default AdjudicatorInterface
+
