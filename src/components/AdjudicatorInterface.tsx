@@ -45,6 +45,7 @@ const AdjudicatorInterface: React.FC = () => {
   const [finalDiscoursePolarization, setFinalDiscoursePolarization] = useState<'partisan' | 'objective' | 'non_polarized' | ''>('')
   const [loading, setLoading] = useState(false)
   const [jumpToComment, setJumpToComment] = useState('')
+  const [exporting, setExporting] = useState(false)
   // Prevent auto-positioning from overriding user navigation
   const [hasAutoPositioned, setHasAutoPositioned] = useState(false)
   const commentsRef = useRef<Comment[]>([])
@@ -431,6 +432,115 @@ const AdjudicatorInterface: React.FC = () => {
   }, [jumpToComment, loadCommentsBatch, totalComments])
 
   const progress = totalComments > 0 ? (finalizedTotal / totalComments) * 100 : 0
+  const handleExportCSV = useCallback(async () => {
+    if (exporting) return
+    setExporting(true)
+
+    try {
+      // 1) Fetch all final annotations in pages
+      const PAGE = 1000
+      let from = 0
+      let allFinals: Array<{ comment_id: number; final_sentiment: string; final_discourse_polarization: string }> = []
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('final_annotations')
+          .select('comment_id, final_sentiment, final_discourse_polarization')
+          .order('comment_id')
+          .range(from, from + PAGE - 1)
+
+        if (error) {
+          console.error('Export: error fetching final_annotations page', error)
+          break
+        }
+
+        const page = (data ?? []) as any[]
+        allFinals = allFinals.concat(page)
+        if (!page || page.length < PAGE) {
+          break
+        }
+        from += PAGE
+      }
+
+      if (allFinals.length === 0) {
+        // Nothing to export
+        const emptyCsv = 'Title,Comment,Final Sentiment,Final Polarization\n'
+        const blob = new Blob([emptyCsv], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'adjudications.csv'
+        a.click()
+        URL.revokeObjectURL(url)
+        setExporting(false)
+        return
+      }
+
+      // 2) Fetch needed comments by id in chunks
+      const idSet = new Set<number>(allFinals.map(f => f.comment_id).filter(Boolean))
+      const ids = Array.from(idSet)
+
+      const commentMap = new Map<number, { context_title: string; text: string }>()
+      const CHUNK = 1000
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK)
+        const { data: commentData, error: commentsError } = await supabase
+          .from('comments')
+          .select('id, context_title, text')
+          .in('id', chunk)
+        if (commentsError) {
+          console.error('Export: error fetching comments chunk', commentsError)
+          continue
+        }
+        (commentData ?? []).forEach((c: any) => {
+          commentMap.set(c.id, { context_title: c.context_title, text: c.text })
+        })
+      }
+
+      // 3) Build CSV
+      const escapeCell = (v: string) => {
+        if (v == null) return ''
+        const s = String(v)
+        // Escape quotes by doubling
+        const escaped = s.replace(/"/g, '""')
+        return '"' + escaped + '"'
+      }
+
+      const rows: string[] = []
+      rows.push(['Title', 'Comment', 'Final Sentiment', 'Final Polarization'].join(','))
+
+      // Order by comment_id ascending for determinism
+      allFinals.sort((a, b) => a.comment_id - b.comment_id)
+
+      for (const fa of allFinals) {
+        const c = commentMap.get(fa.comment_id)
+        const title = c ? c.context_title : ''
+        const comment = c ? c.text : ''
+        const row = [
+          escapeCell(title),
+          escapeCell(comment),
+          escapeCell(fa.final_sentiment),
+          escapeCell(fa.final_discourse_polarization),
+        ].join(',')
+        rows.push(row)
+      }
+
+      const csv = rows.join('\n') + '\n'
+
+      // 4) Trigger download
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `adjudications_${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Export: unexpected error', err)
+    }
+
+    setExporting(false)
+  }, [exporting, supabase])
 
   const hotkeys = useMemo(
     () => [
@@ -513,6 +623,11 @@ const AdjudicatorInterface: React.FC = () => {
         <h2>Adjudicator Interface</h2>
         <div className="progress">
           Progress: {finalizedTotal}/{totalComments} ({progress.toFixed(1)}%)
+        </div>
+        <div className="actions">
+          <button type="button" className="export-btn" onClick={() => { void handleExportCSV() }} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
         </div>
       </div>
 
@@ -654,4 +769,5 @@ const AdjudicatorInterface: React.FC = () => {
 }
 
 export default AdjudicatorInterface
+
 
