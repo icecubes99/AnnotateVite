@@ -463,8 +463,8 @@ const AdjudicatorInterface: React.FC = () => {
       }
 
       if (allFinals.length === 0) {
-        // Nothing to export
-        const emptyCsv = 'Title,Comment,Final Sentiment,Final Polarization\n'
+        // Nothing to export — include UTF-8 BOM so Excel decodes correctly
+        const emptyCsv = '\ufeff' + 'Title,Comment,Final Sentiment,Final Polarization\n'
         const blob = new Blob([emptyCsv], { type: 'text/csv;charset=utf-8;' })
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -528,7 +528,8 @@ const AdjudicatorInterface: React.FC = () => {
       const csv = rows.join('\n') + '\n'
 
       // 4) Trigger download
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      // Prepend UTF-8 BOM so apps like Excel open as UTF-8 (avoids â€œ/â€ etc.)
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
